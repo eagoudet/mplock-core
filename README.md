@@ -1,123 +1,123 @@
 # mplock-core
 
-Núcleo criptográfico, motor de almacenamiento de bóvedas y utilidades de seguridad para el gestor de contraseñas **MPLock**, desarrollado en Rust.
+Core cryptographic engine, vault storage architecture, and security utilities for the **MPLock** password manager, developed in Rust.
 
-`mplock-core` está diseñado para ser un crate completamente independiente, desacoplado de interfaces de usuario (Tauri, Electron, Web), de plataformas específicas y de infraestructura comercial.
+`mplock-core` is designed as a standalone crate, completely decoupled from UI frameworks (Tauri, Electron, Web), platform-specific implementations, and commercial infrastructure.
 
 ---
 
-## 🚀 Características incluidas
+## 🚀 Features
 
-### 1. Cifrado y Descifrado de Bóvedas (`mplock_core::crypto`)
-- **Algoritmo de cifrado:** AES-256-GCM (cifrado autenticado con verificación de integridad mediante authentication tag).
-- **Derivación de claves:** PBKDF2-HMAC-SHA256 con **600,000 iteraciones** de acuerdo con las recomendaciones OWASP actuales.
-- **Formato del payload cifrado:** Empaquetado binario serializado en Base64:
+### 1. Vault Encryption & Decryption (`mplock_core::crypto`)
+- **Encryption Algorithm:** AES-256-GCM (authenticated encryption with integrity verification via authentication tag).
+- **Key Derivation:** PBKDF2-HMAC-SHA256 with **600,000 iterations**, adhering to current OWASP recommendations.
+- **Encrypted Payload Format:** Binary packaging serialized in Base64:
   `[Salt (16 bytes)] + [Nonce/IV (12 bytes)] + [Ciphertext + Auth Tag (Variable)]`
-- **Higiene de memoria:** Uso de la trait `Zeroize` para sobrescribir claves maestras, DEKs temporales y buffers en memoria RAM al ser liberados.
+- **Memory Hygiene:** Uses the `Zeroize` trait to wipe master passwords, ephemeral DEKs, and internal buffers from RAM upon drop.
 
-### 2. Gestión de Almacenamiento y Bóveda Segura (`mplock_core::storage`)
-- **Arquitectura de Clave Envoltorio (DEK - Data Encryption Key):**
-  - Generación de un DEK aleatorio de 32 bytes (256 bits).
-  - El DEK se almacena cifrado dos veces de forma independiente:
-    1. Cifrado con la contraseña maestra del usuario.
-    2. Cifrado con un código de recuperación humanamente legible.
-- **Códigos de recuperación:** Generación de códigos de 24 caracteres aleatorios formateados en bloques (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`), excluyendo caracteres visualmente ambiguos (`0`, `O`, `1`, `I`).
-- **Migración transparente:** Soporte de actualización automática de esquemas legados hacia el esquema envoltorio con UUIDs persistentes.
-- **Modelos de datos:** Estructura `Credential` con campo `id` persistente y secreto TOTP opcional.
+### 2. Secure Vault & Storage Management (`mplock_core::storage`)
+- **Envelope Key Architecture (DEK - Data Encryption Key):**
+  - Generates a random 32-byte (256-bit) DEK.
+  - The DEK is stored encrypted twice independently:
+    1. Encrypted with the user's master password.
+    2. Encrypted with a human-friendly recovery code.
+- **Recovery Codes:** Generates 24-character random codes grouped in blocks (`XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`), excluding visually ambiguous characters (`0`, `O`, `1`, `I`).
+- **Seamless Migration:** Transparent automatic upgrade from legacy single-key schemes to the envelope key model with persistent UUIDs.
+- **Data Models:** `Credential` structure with persistent `id` and optional TOTP secret.
 
-### 3. Generador de Contraseñas Criptográficamente Seguras (`mplock_core::password`)
-- Generador respaldado por el CSPRNG del sistema operativo (`rand::rngs::OsRng`).
-- **Muestreo de rechazo (Rejection Sampling):** Selección 100% uniforme e independiente sobre 78 caracteres legibles (alfabeto latino minúsculas/mayúsculas, números y símbolos).
-- **Cero sesgo de módulo (Zero modulo bias):** Garantiza que cada contraseña generada contenga obligatoriamente al menos una minúscula, una mayúscula, un dígito y un carácter especial.
+### 3. Cryptographically Secure Password Generator (`mplock_core::password`)
+- Backed by the operating system CSPRNG (`rand::rngs::OsRng`).
+- **Rejection Sampling:** 100% uniform and independent selection across 78 human-readable characters (ASCII lowercase, uppercase, digits, and symbols).
+- **Zero Modulo Bias:** Enforces that every generated password contains at least one lowercase letter, one uppercase letter, one digit, and one special character.
 
-### 4. Motor de Autenticación 2FA / TOTP (`mplock_core::totp`)
-- **Estándar RFC 6238:** Generación de códigos TOTP de 6 dígitos basados en HMAC-SHA1 y ventanas temporales de 30 segundos.
-- **Cálculo de caducidad:** Cálculo preciso de segundos restantes en la ventana temporal actual.
-- **Normalización de secretos Base32:** Limpieza de espacios, guiones y conversión a mayúsculas con validación estricta del alfabeto RFC 4648.
-- **Parser de URIs:** Extracción automática de secretos a partir de esquemas estándar `otpauth://totp/...`.
+### 4. 2FA / TOTP Authentication Engine (`mplock_core::totp`)
+- **RFC 6238 Standard:** Generates 6-digit TOTP codes based on HMAC-SHA1 with 30-second time steps.
+- **Expiration Calculation:** Precise calculation of remaining seconds in the current time window.
+- **Base32 Secret Normalization:** Cleans spaces, dashes, and normalizes to uppercase with strict RFC 4648 alphabet validation.
+- **URI Parser:** Automatically extracts secrets from standard `otpauth://totp/...` URIs.
 
-### 5. Mecanismo Criptográfico Genérico de Verificación Ed25519 (`mplock_core::license`)
-- **Verificación offline de licencias:** Validación puramente criptográfica de firmas Ed25519 sobre payloads binarios compactos de 14 bytes (versión, plan, timestamps UNIX y hash de identidad).
-- **Lista de revocación criptográfica:** Verificación de huellas SHA-256 de firmas revocadas.
-- **Cero acoplamiento comercial:** La biblioteca no contiene claves públicas ni listas de revocación propietarias hardcodeadas; estas son suministradas por el consumidor de la API.
-
----
-
-## 🚫 Qué NO incluye este crate (Diseño deliberado)
-
-Para preservar la pureza, seguridad e independencia del núcleo, este crate **NO** incluye:
-- ❌ **Dependencias de Tauri ni de GUI:** No depende de Tauri, Wry, Webview ni librerías de interfaz gráfica.
-- ❌ **Integración comercial con pasarelas de pago:** No contiene SDKs ni lógica vinculada a Lemon Squeezy, Stripe, Gumroad ni webhooks externos.
-- ❌ **Claves privadas:** Ninguna clave privada o de firma reside en el código fuente.
-- ❌ **Claves públicas comerciales propietarias:** El verificador de licencias recibe la clave pública como parámetro `&[u8; 32]`, permitiendo el uso de cualquier par de claves.
-- ❌ **Lógica específica de modelo de negocio:** Reglas comerciales particulares (como límites de cuentas gratuitas o días de prueba) deben residir en la aplicación consumidora.
-- ❌ **Huellas de hardware del sistema operativo:** No realiza lecturas directas del registro de Windows (`winreg`), WMI ni llamadas propietarias de SO.
+### 5. Generic Ed25519 Cryptographic License Verification (`mplock_core::license`)
+- **Offline License Verification:** Purely cryptographic verification of Ed25519 signatures over compact 14-byte binary payloads (version, plan, UNIX timestamps, and identity hash).
+- **Cryptographic Revocation List:** Validates against SHA-256 hashes of revoked signatures.
+- **Zero Commercial Coupling:** The library contains no hardcoded public keys or proprietary revocation lists; these are supplied by the API consumer.
 
 ---
 
-## 📦 Uso rápido
+## 🚫 What This Crate Does NOT Include (By Design)
 
-Agrega `mplock-core` a tu `Cargo.toml`:
+To preserve the purity, security, and independence of the core, this crate **does NOT** include:
+- ❌ **Tauri or GUI Dependencies:** Does not depend on Tauri, Wry, Webview, or any graphical interface libraries.
+- ❌ **Commercial Payment Gateway Integrations:** Contains no SDKs or logic tied to Lemon Squeezy, Stripe, Gumroad, or external webhooks.
+- ❌ **Private Keys:** No private or signing keys exist in the codebase.
+- ❌ **Proprietary Commercial Public Keys:** The license verifier accepts the public key as a parameter (`&[u8; 32]`), allowing any key pair to be used.
+- ❌ **Business Model Logic:** Specific commercial rules (such as free tier limits or trial duration) must reside in the consumer application.
+- ❌ **Operating System Hardware Fingerprinting:** Performs no direct reading of Windows registry (`winreg`), WMI, or proprietary OS calls.
+
+---
+
+## 📦 Quick Start
+
+Add `mplock-core` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 mplock-core = { version = "0.1.0" }
 ```
 
-### Ejemplo: Cifrado y descifrado de datos
+### Example: Encrypting and Decrypting Data
 ```rust
 use mplock_core::crypto;
 
-let password = b"MiPasswordMaestroSuperSeguro123!";
-let data = "Información confidencial de la bóveda";
+let password = b"MySuperSecureMasterPassword123!";
+let data = "Confidential vault data";
 
-// Cifrar con AES-256-GCM + PBKDF2 (600k iteraciones)
+// Encrypt with AES-256-GCM + PBKDF2 (600k iterations)
 let payload_b64 = crypto::encrypt(data, password)?;
 
-// Descifrar verificando autenticidad
+// Decrypt while verifying integrity and authenticity
 let decrypted = crypto::decrypt(&payload_b64, password)?;
 assert_eq!(decrypted, data);
 ```
 
-### Ejemplo: Generación de contraseñas
+### Example: Password Generation
 ```rust
 use mplock_core::password;
 
-// Genera una contraseña segura de 20 caracteres garantizando todas las clases
+// Generate a secure 20-character password guaranteeing all character classes
 let secure_pass = password::generate_secure_password(20)?;
-println!("Contraseña generada: {}", secure_pass);
+println!("Generated password: {}", secure_pass);
 ```
 
-### Ejemplo: Generación de códigos TOTP / 2FA
+### Example: TOTP / 2FA Code Generation
 ```rust
 use mplock_core::totp;
 
 let secret = "JBSWY3DPEHPK3PXP";
 let response = totp::generate_totp_code(secret)?;
 
-println!("Código 2FA: {}", response.code);
-println!("Segundos restantes: {}", response.seconds_remaining);
+println!("2FA Code: {}", response.code);
+println!("Seconds remaining: {}", response.seconds_remaining);
 ```
 
-### Ejemplo: Verificación criptográfica de licencia Ed25519
+### Example: Generic Ed25519 License Verification
 ```rust
 use mplock_core::license;
 
-let public_key: [u8; 32] = [/* 32 bytes de tu clave pública Ed25519 */];
-let revoked_hashes: &[&str] = &[]; // Lista de hashes SHA-256 revocados
+let public_key: [u8; 32] = [/* 32 bytes of your Ed25519 public key */];
+let revoked_hashes: &[&str] = &[]; // List of revoked SHA-256 hashes
 
 let license_key = "AEAWR-PSFEA-...";
 let payload = license::verify_license(license_key, &public_key, revoked_hashes)?;
 
 println!("Plan: {}", payload.plan);
-println!("Emitida en timestamp: {}", payload.issued_at);
+println!("Issued at timestamp: {}", payload.issued_at);
 ```
 
 ---
 
-## 🧪 Ejecución de Tests
+## 🧪 Running Tests
 
-`mplock-core` incluye una suite completa de pruebas unitarias que cubren vectores de prueba oficiales (RFC 6238 para TOTP, vectores de cifrado y muestreo de contraseñas):
+`mplock-core` includes a comprehensive unit test suite covering official test vectors (RFC 6238 for TOTP, encryption vectors, and password sampling):
 
 ```bash
 cargo test -p mplock-core
@@ -125,10 +125,10 @@ cargo test -p mplock-core
 
 ---
 
-## ⚖️ Licencia
+## ⚖️ License
 
-Este proyecto está distribuido bajo licencia dual, a elección del usuario:
-- **Licencia MIT** ([LICENSE-MIT](LICENSE-MIT))
-- **Licencia Apache 2.0** ([LICENSE-APACHE](LICENSE-APACHE))
+This project is dual-licensed under either:
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT))
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE))
 
-Esta dualidad es el estándar de facto en el ecosistema Rust (como Serde y Tokio), permitiendo tanto la máxima permisividad para proyectos de código abierto (MIT) como la protección explícita de patentes requerida por entornos corporativos (Apache-2.0).
+This dual-licensing scheme is the de facto standard in the Rust ecosystem (e.g., Serde, Tokio), providing maximum permissiveness for open-source projects (MIT) alongside explicit patent grants required by corporate environments (Apache-2.0).
