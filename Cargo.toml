@@ -1,0 +1,24 @@
+[package]
+name = "mplock-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core cryptography, vault storage, password generator, TOTP/2FA, and generic Ed25519 license verification for MPLock"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/mplock/mplock-core"
+keywords = ["password-manager", "cryptography", "aes-gcm", "totp", "ed25519"]
+categories = ["cryptography", "authentication"]
+
+[dependencies]
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+sha2 = "0.10"
+base64 = "0.21"
+rand = "0.8"
+zeroize = { version = "1.7", features = ["derive"] }
+ed25519-dalek = { version = "2.1", features = ["std"] }
+totp-rs = { version = "5.6", features = ["qr", "serde"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
