@@ -1,6 +1,6 @@
 [package]
 name = "mplock-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Core cryptography, vault storage, password generator, TOTP/2FA, and generic Ed25519 license verification for MPLock"
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,7 @@ keywords = ["password-manager", "cryptography", "aes-gcm", "totp", "ed25519"]
 categories = ["cryptography", "authentication"]
 
 [dependencies]
-aes-gcm = "0.10"
+aes-gcm = { version = "0.10", features = ["zeroize"] }
 pbkdf2 = { version = "0.12", features = ["simple"] }
 sha2 = "0.10"
 base64 = "0.21"

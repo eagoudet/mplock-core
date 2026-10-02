@@ -4,6 +4,8 @@ Core cryptographic engine, vault storage architecture, and security utilities fo
 
 `mplock-core` is designed as a standalone crate, completely decoupled from UI frameworks (Tauri, Electron, Web), platform-specific implementations, and commercial infrastructure.
 
+> 📖 **Cryptographic Specifications:** For an in-depth, honest, and verifiable analysis of the threat model, local-first encrypted storage, and memory hygiene, read our **[Architecture whitepaper](docs/WHITEPAPER.md)**.
+
 ---
 
 ## 🚀 Features
@@ -27,7 +29,7 @@ Core cryptographic engine, vault storage architecture, and security utilities fo
 
 ### 3. Cryptographically Secure Password Generator (`mplock_core::password`)
 - Backed by the operating system CSPRNG (`rand::rngs::OsRng`).
-- **Rejection Sampling:** 100% uniform and independent selection across 78 human-readable characters (ASCII lowercase, uppercase, digits, and symbols).
+- **Rejection Sampling:** Uniform and independent selection across 78 human-readable characters (ASCII lowercase, uppercase, digits, and symbols).
 - **Zero Modulo Bias:** Enforces that every generated password contains at least one lowercase letter, one uppercase letter, one digit, and one special character.
 
 ### 4. 2FA / TOTP Authentication Engine (`mplock_core::totp`)
