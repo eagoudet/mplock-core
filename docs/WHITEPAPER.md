@@ -1,7 +1,7 @@
 # Whitepaper de Arquitectura Criptográfica: MPLock & mplock-core
 
-**Documento Técnico Oficial — Versión 1.2 (Octubre 2026)**  
-**Ámbito de Referencia:** `mplock-core` v0.1.1 (en `main`) · `MPLock Desktop` v1.3.3 (Windows x64)  
+**Documento Técnico Oficial — Versión 1.4 (Octubre 2026)**  
+**Ámbito de Referencia:** `mplock-core` v0.1.1 (en `main`) · `MPLock Desktop` v1.4.0 (Windows x64) · `Extensiones` v1.10.0  
 **Repositorio Abierto del Núcleo:** [github.com/eagoudet/mplock-core](https://github.com/eagoudet/mplock-core)  
 **Licencia del Núcleo:** MIT OR Apache-2.0  
 
@@ -58,7 +58,7 @@ Un diseño de seguridad responsable exige definir con rigor el límite entre las
 
 ### 2.1 Qué Protege MPLock
 * **Robo o filtración del archivo de bóveda en reposo (`credentials.enc`):** Si un atacante extrae físicamente el disco duro, copia la carpeta de datos de la aplicación (`%APPDATA%/com.passwords.app/credentials.enc`) o accede a una copia de seguridad sin autorización, los datos permanecen computacionalmente inviables de descifrar sin el conocimiento previo de la contraseña maestra (con entropía adecuada) o del código de recuperación alfanumérico.
-* **Manipulación y corrupción de datos cifrados:** El uso de AES-256-GCM incorpora un tag de autenticación de 128 bits que garantiza la detección inmediata de cualquier bit alterado, truncado o inyectado en el archivo de la bóveda antes de que los datos puedan ser procesados.
+* **Manipulación y corrupción de datos cifrados:** El uso de AES-256-GCM incorpora un tag de autenticación de 128 bits que permite la detección criptográfica inmediata de cualquier bit alterado, truncado o inyectado en el archivo de la bóveda antes de que los datos puedan ser procesados.
 * **Coste computacional ante fuerza bruta:** La derivación de claves mediante 600.000 iteraciones de PBKDF2-HMAC-SHA256 eleva sustancialmente el coste de tiempo de cómputo en ataques de diccionario y fuerza bruta en CPU.
 
 ### 2.2 Lo que MPLock NO Protege (Límites Explícitos de Seguridad)
@@ -67,10 +67,11 @@ Ningún gestor de contraseñas de software puede sustituir las garantías fundam
 2. **Lectura de memoria por otros procesos del mismo usuario:** En Windows, cualquier proceso o script que se ejecute bajo la misma sesión de usuario interactiva y con el mismo nivel de integridad puede, en general, abrir el proceso de MPLock mediante `OpenProcess(PROCESS_VM_READ)` y examinar su espacio de direcciones virtuales sin requerir privilegios de Administrador local ni elevación UAC. Mientras la bóveda permanece desbloqueada, los datos descifrados residen en la memoria RAM del proceso.
 3. **Contraseña maestra débil o predecible:** Un usuario que escoja una contraseña maestra corta, predecible o presente en filtraciones masivas anula la protección de PBKDF2.
 4. **Pérdida simultánea de contraseña y código de recuperación:** Dado que MPLock opera sin servidores ni mecanismos de custodia de claves, **no existe recuperación posible**. Si el usuario olvida su clave y pierde su código físico de recuperación, los datos se pierden irreversiblemente.
-5. **Limpieza de Portapapeles y Límites del Sistema Operativo:** MPLock implementa un temporizador nativo en segundo plano (en el proceso Tauri/Rust, `src-tauri/src/lib.rs`) que limpia automáticamente el contenido del portapapeles tras 30 segundos, únicamente si el portapapeles aún contiene el valor copiado (evitando sobreescribir datos nuevos del usuario). Sin embargo, este mecanismo tiene un límite inherente en el sistema operativo: si el usuario tiene habilitado el "Historial del Portapapeles" de Windows (`Win + V`) o la sincronización en la nube de Microsoft, el sistema operativo retiene un registro histórico propio fuera del alcance y del proceso de la aplicación.
-6. **Ataques de Reversión (Rollback):** AES-256-GCM garantiza la autenticidad del archivo que se está descifrando, pero **no previene ataques de reversión (rollback)**. Si un atacante sustituye el archivo de la bóveda actual por una copia de respaldo legítima anterior, MPLock la descifrará con éxito sin alertar de que los datos han sido revertidos a un estado anterior, al no contar con un contador monótono en hardware (como TPM).
-7. **Consolidación de Contraseñas y Semillas 2FA en el mismo almacén:** Almacenar contraseñas y semillas secretas TOTP en la misma base de datos rompe el principio de segundo factor fuera de banda (*out-of-band*). Si la bóveda se ve vulnerada, ambos factores de autenticación quedan expuestos de forma simultánea.
-8. **Integridad de un sistema operativo comprometido:** Modificaciones maliciosas en las DLLs de sistema, el registro de Windows o los binarios locales de MPLock escapan al perímetro de defensa de la aplicación.
+5. **Limpieza de Portapapeles y Mitigación de Historial en Windows:** Al copiar una credencial o secreto, MPLock utiliza las extensiones nativas de Windows en `arboard` (`SetExtWindows::exclude_from_history()` y `exclude_from_cloud()`, `src-tauri/src/lib.rs`), instruyendo al sistema operativo para que no registre el secreto en el Historial del Portapapeles (`Win + V`) ni lo sincronice en la nube de Microsoft. Estas directivas son respetadas por Windows y por gestores de portapapeles bien portados, pero no necesariamente por herramientas de terceros no conformes. Asimismo, un temporizador en segundo plano vacía el portapapeles tras 30 segundos si el contenido aún coincide con el secreto copiado (función pura `should_clear_clipboard`). En un cierre normal de la aplicación, el manejador de eventos del ciclo de vida (`tauri::WindowEvent::CloseRequested / Destroyed`) intercepta el cierre y limpia inmediatamente el portapapeles si todavía contiene el secreto; no obstante, un cierre forzado del proceso (ej. `taskkill` o Administrador de tareas), un apagado repentino del equipo o un fallo imprevisto pueden impedir dicha ejecución y dejar el secreto en el portapapeles del sistema.
+6. **Custodia de Credenciales en la Memoria del Navegador:** Cuando las credenciales se transfieren a la extensión web para autorrellenar un formulario, residen temporalmente en la memoria del navegador (motor JavaScript/V8). MPLock no puede forzar una sobrescritura con ceros (`zeroize`) en la memoria del navegador debido a que el recolector de basura de JavaScript maneja cadenas inmutables y el ciclo de vida de la memoria del navegador es ajeno al proceso de escritorio.
+7. **Ataques de Reversión (Rollback):** AES-256-GCM comprueba la autenticidad del archivo que se está descifrando, pero **no previene ataques de reversión (rollback)**. Si un atacante sustituye el archivo de la bóveda actual por una copia de respaldo legítima anterior, MPLock la descifrará con éxito sin alertar de que los datos han sido revertidos a un estado anterior, al no contar con un contador monótono en hardware (como TPM).
+8. **Consolidación de Contraseñas y Semillas 2FA en el mismo almacén:** Almacenar contraseñas y semillas secretas TOTP en la misma base de datos rompe el principio de segundo factor fuera de banda (*out-of-band*). Si la bóveda se ve vulnerada, ambos factores de autenticación quedan expuestos de forma simultánea.
+9. **Integridad de un sistema operativo comprometido:** Modificaciones maliciosas en las DLLs de sistema, el registro de Windows o los binarios locales de MPLock escapan al perímetro de defensa de la aplicación.
 
 ---
 
@@ -153,6 +154,17 @@ Cada uno de los tres campos almacena un payload binario serializado en Base64 es
 ```
 Durante el desbloqueo (`storage::load_db`, `storage.rs:132-196`), el sistema extrae los primeros 16 bytes como Salt, los siguientes 12 como IV, y entrega el remanente a `Aes256Gcm::decrypt`.
 
+### 3.5 Especificación del Formato de Respaldo Cifrado (`.mplockbackup`)
+La exportación de respaldo cifrado (implementada en `src-tauri/src/lib.rs`) genera un archivo binario autónomo estructurado en dos regiones: un encabezado canónico de 30 bytes seguido del payload cifrado con el motor de `mplock-core`:
+* **Encabezado Binario (30 bytes en Little-Endian):**
+  1. `Magic Bytes` (14 bytes): Cadena ASCII fija `MPLOCK_BACKUP\0` (identificador estricto de formato).
+  2. `Version` (4 bytes, `u32` LE): Versión del formato (fijada en `1`; versiones superiores son rechazadas con error explicativo).
+  3. `Iterations` (4 bytes, `u32` LE): Rondas de PBKDF2 (fijadas en `600_000`; valores < 600.000 o > 2.000.000 son rechazados por seguridad).
+  4. `Salt Length` (4 bytes, `u32` LE): Longitud del salt aleatorio (`16` bytes).
+  5. `Nonce Length` (4 bytes, `u32` LE): Longitud del vector de inicialización / nonce (`12` bytes).
+* **Payload Cifrado:** Salida de `mplock_core::crypto::encrypt` aplicada sobre la estructura JSON serializada con las credenciales, notas y semillas TOTP, utilizando AES-256-GCM y clave derivada mediante PBKDF2-HMAC-SHA256 con una contraseña de exportación independiente de la clave maestra.
+* **Escritura Atómica:** El archivo se escribe en un fichero temporal en el mismo directorio (`.{nombre}.tmp.{random}`) y se renombra atómicamente al destino final tras sincronizar buffers en disco (`sync_all`).
+
 ---
 
 ## 4. Generación de Aleatoriedad y Muestreo de Contraseñas
@@ -177,7 +189,7 @@ En `password.rs:44`, la selección se realiza mediante:
 ```rust
 let idx = rng.gen_range(0..allowed_base.len());
 ```
-La función `gen_range` de la biblioteca `rand` implementa internamente muestreo uniforme por rechazo (*rejection sampling*), descartando los enteros residuales que causan asimetría y garantizando una probabilidad idéntica e indistinguible de $\frac{1}{78}$ para cada carácter.
+La función `gen_range` de la biblioteca `rand` implementa internamente muestreo uniforme por rechazo (*rejection sampling*), descartando los enteros residuales que causan asimetría y asegurando una probabilidad idéntica e indistinguible de $\frac{1}{78}$ para cada carácter.
 
 Adicionalmente, el generador aplica un **muestreo de rechazo a nivel de contraseña completa** (`password.rs:36-62`). En lugar de insertar forzadamente caracteres en posiciones predeterminadas (lo cual introduciría patrones estructurales detectables), genera una secuencia uniforme y verifica en un bucle:
 ```rust
@@ -200,7 +212,7 @@ Para reducir la ventana temporal de exposición de datos confidenciales ante vol
 
 ### 5.2 Límites Técnicos Reales (Mitigación vs. Eliminación Garantizada)
 MPLock utiliza el término **"mitigación de memoria"** y rechaza la expresión "eliminación garantizada de memoria". Las limitaciones técnicas identificadas son:
-* **Feature `zeroize` en el crate `aes-gcm` (habilitada desde v0.1.1):** A partir de `mplock-core v0.1.1` y `src-tauri`, se habilita explícitamente la feature `features = ["zeroize"]` en `aes-gcm = "0.10"`. Esto garantiza que la estructura interna `Aes256Gcm`, que contiene las subclaves expandidas de AES, sobrescriba su estado interno con ceros al ejecutarse su destructor (`drop`).
+* **Feature `zeroize` en el crate `aes-gcm` (habilitada desde v0.1.1):** A partir de `mplock-core v0.1.1` y `src-tauri`, se habilita explícitamente la feature `features = ["zeroize"]` en `aes-gcm = "0.10"`. Esto permite que la estructura interna `Aes256Gcm`, que contiene las subclaves expandidas de AES, sobrescriba su estado interno con ceros al ejecutarse su destructor (`drop`).
 * **Archivo de Paginación del SO (`pagefile.sys`):** Si Windows decide volcar páginas de memoria RAM a disco antes de que se ejecute el destructor `drop`, fragmentos de texto claro pueden persistir en el almacenamiento no volátil.
 * **Registros de CPU y Optimizaciones:** Los registros intermedios de la CPU pueden haber retenido valores transitorios antes de la ejecución de las rutinas de sobrescritura.
 * **Capa Webview / JavaScript:** Las credenciales mostradas en la interfaz gráfica cruzan el puente IPC hacia React y el motor V8. El recolector de basura de JavaScript gestiona cadenas inmutables que no pueden ser sobrescritas manualmente con ceros desde el código de la UI.
@@ -298,25 +310,28 @@ El host nativo se registra exclusivamente en las siguientes claves del Registro 
 3. **Mozilla Firefox:** `HKCU\Software\Mozilla\NativeMessagingHosts\com.passwords.app`
 
 Los manifiestos generados en disco configuran los siguientes identificadores:
-* **Chrome y Edge (`allowed_origins`, `src-tauri/src/lib.rs:586-588`):**
-  `"chrome-extension://gianaainehpppkelimbojoafaomdpipa/"` (ID oficial de Chrome Web Store: `gianaainehpppkelimbojoafaomdpipa`).
-* **Mozilla Firefox (`allowed_extensions`, `src-tauri/src/lib.rs:569-571`):**
-  `"password-manager@example.com"`. *(Nota técnica: Este identificador quedó fijado permanentemente por Mozilla AMO porque fue el ID con el que se subió la extensión por primera vez a la tienda oficial de complementos; no es un valor temporal ni un requisito exigido técnicamente para enlazar el host nativo, sino la identidad inmutable asignada a la extensión en el catálogo de Firefox).*
+* **Chrome y Edge (`allowed_origins`, `src-tauri/src/lib.rs:614-616`):**
+  `"chrome-extension://gianaainehpppkelimbojoafaomdpipa/"` (identificador en Chrome Web Store: `gianaainehpppkelimbojoafaomdpipa`).
+* **Mozilla Firefox (`allowed_extensions`, `src-tauri/src/lib.rs:597-599`):**
+  `"password-manager@example.com"`. *(Nota técnica: Este identificador quedó fijado permanentemente por Mozilla AMO porque fue el ID con el que se subió la extensión por primera vez al catálogo de Mozilla Add-ons; no es un valor temporal ni un requisito exigido técnicamente para enlazar el host nativo, sino la identidad inmutable asignada a la extensión en dicho catálogo).*
 
-### 8.3 Flujo Real de Datos y Exposición de la Contraseña Maestra
+### 8.3 Flujo Real de Datos, Exposición de la Contraseña Maestra y Memoria del Navegador
 * **Datos transmitidos por el canal:** Consultas de estado (`ping`), bloqueo (`lock`), solicitudes de credenciales por dominio (`get`), y comandos de desbloqueo (`unlock`).
 * **Flujo de la Contraseña Maestra en Native Messaging:**
   La contraseña maestra **nunca se transmite por red externa ni a servidores remotos**. Sin embargo, **en el canal local de mensajería nativa, sí viaja en texto plano JSON a través de `stdin`** cuando el usuario solicita desbloquear la base de datos desde la ventana emergente de la extensión:
   1. La extensión envía: `{"action": "unlock", "masterPassword": "<clave>"}`.
   2. La función `run_native_host` (`src-tauri/src/native_host.rs:67-89`) recibe la clave y carga la bóveda en memoria.
   3. **Custodia en memoria:** El subproceso del host nativo retiene la clave maestra en la variable `master_password: Option<Vec<u8>>` durante todo el tiempo que la sesión permanezca desbloqueada, aplicando `zeroize()` al cerrarse o bloquearse (`native_host.rs:77, 92, 123`).
-* **Datos retornados:** Únicamente la credencial individual coincidente con el dominio (`system`, `username`, `password`, `notes`) y el código numérico temporal de 6 dígitos del TOTP.
-* **Datos que NUNCA cruzan el canal:** La base de datos completa no se transmite, la clave DEK no sale del proceso Rust, las semillas secretas Base32 de TOTP nunca se envían al navegador y el código de recuperación no se transmite.
+* **Datos retornados:** Únicamente la credencial individual coincidente con el dominio (`system`, `username`, `password`, `notes`) y el código numérico temporal de 6 dígitos del TOTP. La credencial recibida por la extensión reside temporalmente en la memoria JavaScript del navegador gestionada por su recolector de basura, la cual MPLock no puede sobreescribir con ceros desde el proceso de escritorio.
+* **Datos que no cruzan el canal:** La base de datos completa no se transmite, la clave DEK no sale del proceso Rust, las semillas secretas Base32 de TOTP nunca se envían al navegador y el código de recuperación no se transmite.
 
 ### 8.4 Permisos Declarados en la Extensión (`manifest.json`)
 * `nativeMessaging`: Imprescindible para lanzar y comunicarse con el binario local `mplock.exe`.
 * `activeTab`: Acceso a la URL y título de la pestaña activa únicamente cuando el usuario pulsa el icono de la extensión.
 * `scripting`: Permite insertar las credenciales devueltas exclusivamente en los campos de usuario y contraseña de la pestaña activa tras pulsar "Rellenar". No se solicita el permiso global `<all_urls>`.
+
+### 8.5 Exportación a CSV en Texto Plano (Riesgo Operativo del Cliente)
+La función de exportación a CSV genera un archivo en texto plano sin cifrar con todos los secretos del almacén (usuarios, contraseñas y semillas TOTP) para permitir la migración hacia otros gestores. Aunque la aplicación mitiga la fuga accidental exigiendo la reautenticación mediante contraseña maestra y la escritura explícita de la palabra de confirmación `EXPORTAR`, una vez volcado al sistema de archivos el fichero resultante queda expuesto sin protección criptográfica y debe ser eliminado de forma segura por el usuario tras completar la migración.
 
 ---
 
@@ -338,7 +353,7 @@ MPLock mantiene una política de transparencia sobre qué componentes están abi
 
 ## 10. Pruebas Automatizadas y Reproducibilidad
 
-El espacio de trabajo cuenta con un total de 39 pruebas unitarias automatizadas. No obstante, **únicamente las 14 pruebas de `mplock-core` son reproducibles públicamente por la comunidad**, ya que las 25 pruebas restantes corresponden a la aplicación de escritorio cerrada (`tauri_app_lib`).
+El espacio de trabajo cuenta con un total de **50 pruebas unitarias automatizadas** verificadas mediante `cargo test`. No obstante, **únicamente las 14 pruebas de `mplock-core` son reproducibles públicamente por la comunidad**, ya que las 36 pruebas restantes corresponden a la aplicación de escritorio cerrada (`tauri_app_lib`).
 
 ### 10.1 Inventario de Pruebas Públicamente Reproducibles (`mplock-core`)
 Las 14 pruebas unitarias de `mplock-core` se ejecutan en 0,53s (más pruebas estadísticas) y validan:
@@ -355,7 +370,7 @@ Las 14 pruebas unitarias de `mplock-core` se ejecutan en 0,53s (más pruebas est
 * `license::tests::test_base32_decode_valid`, `test_license_creation_and_verification_generic`, `test_revoked_license_fails`, `test_expired_license_fails`: Firma, verificación, expiración y revocación con Ed25519.
 
 ### 10.2 Pruebas Internas de la Aplicación de Escritorio (`tauri_app_lib`)
-Las 25 pruebas internas de `src-tauri` (no públicas) validan la política de cuotas en Free/Trial, la compatibilidad con almacenes de más de 15 credenciales creados en Pro, la retrocompatibilidad en migraciones y el control de acceso en el host nativo.
+Las 36 pruebas internas de `src-tauri` (no públicas) validan la política de cuotas en Free/Trial, la compatibilidad con almacenes de más de 15 credenciales creados en Pro, la retrocompatibilidad en migraciones, la sanitización del portapapeles, el control de acceso en el host nativo y la suite completa de 9 pruebas de respaldo cifrado (`.mplockbackup`: ciclo roundtrip de cifrado/descifrado, rechazo de contraseña errónea, detección de alteración de bytes, detección de archivos truncados, validación de versiones soportadas y límites de iteraciones, respeto del límite de 15 cuentas en importación, escritura atómica en disco y rechazo de contraseña de exportación idéntica a la maestra).
 
 ### 10.3 Cómo Reproducir las Pruebas Abiertas
 ```bash
@@ -373,7 +388,7 @@ cargo test
 MPLock declara formalmente que **su arquitectura y código fuente NO han sido auditados por una firma de seguridad independiente ni por un auditor externo colegiado** (como Cure53, Trail of Bits o NCC Group). No debe asumirse ninguna certificación externa hasta que dicha evaluación sea contratada y sus resultados publicados.
 
 ### 11.2 Binarios, Ausencia de Compilaciones Reproducibles y Firma
-* **Código cerrado del instalador:** La aplicación de escritorio es de código cerrado y no dispone de compilaciones reproducibles (*reproducible builds*). Un auditor externo no puede verificar de forma automatizada que el instalador distribuido (`MPLock_Setup.exe`) provenga de manera exacta del núcleo abierto `mplock-core`.
+* **Código cerrado del instalador:** La aplicación de escritorio es de código cerrado y no dispone de compilaciones reproducibles (*reproducible builds*). Un auditor externo no puede verificar de forma automatizada que el instalador distribuido (`mplock_setup.exe`) provenga de manera exacta del núcleo abierto `mplock-core`.
 * **Firma Digital del Instalador:** El instalador actualmente **no cuenta con firma Authenticode EV/OV comercial**, lo que provoca la advertencia preventiva de Microsoft Defender SmartScreen durante la descarga e instalación.
 * **Compromiso de Publicación:** Publicar el hash criptográfico SHA-256 del instalador en cada lanzamiento oficial de GitHub Releases para verificación de integridad de descarga.
 
@@ -391,13 +406,15 @@ Para reportar vulnerabilidades de seguridad, debilidades criptográficas o fallo
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **v1.0** | 1 de Octubre de 2026 | Publicación Inicial | v1.3.3 | v0.1.0 (commit `2a5a440`) | Redacción inicial del Whitepaper de Arquitectura Criptográfica. |
 | **v1.1** | 2 de Octubre de 2026 | Revisión Técnica Rigurosa | v1.3.3 | v0.1.0 (commit `2a5a440`) | Corrección de flujo de contraseña maestra en Native Messaging, documentación de IDs reales de extensión, aclaración sobre límites del portapapeles, especificación de límites de PBKDF2 frente a Argon2id, advertencia de lectura de memoria en Windows por procesos del mismo usuario, documentación de parámetros ignorados en TOTP, y aclaración de reproducibilidad pública de pruebas. |
-| **v1.2** | 2 de Octubre de 2026 | Actualización Técnica Integral | v1.3.3 | v0.1.1 (en `main`) | Actualización de `mplock-core` a `v0.1.1`; habilitación de feature `zeroize` en `aes-gcm = "0.10"` para sobrescritura de subclaves en memoria tras drop; implementación de limpieza automática de portapapeles a los 30 s en Rust/Tauri; corrección sobre ID inmutable de Firefox fijado permanentemente por Mozilla AMO (`password-manager@example.com`). |
+| **v1.2** | 2 de Octubre de 2026 | Actualización Técnica Integral | v1.3.3 | v0.1.1 (en `main`) | Actualización de `mplock-core` a `v0.1.1`; habilitación de feature `zeroize` en `aes-gcm = "0.10"` para sobrescritura de subclaves en memoria tras drop; integración de extensiones nativas de Windows en `arboard` (`SetExtWindows::exclude_from_history / exclude_from_cloud`) mitigando persistencia en `Win + V` y nube; temporizador nativo en segundo plano (Tauri/Rust) para vaciado a los 30 s y limpieza al cerrar ventana; delimitación de memoria JavaScript en extensiones; corrección sobre ID inmutable de Firefox fijado por Mozilla AMO (`password-manager@example.com`). |
+| **v1.3** | 2 de Octubre de 2026 | Lanzamiento Release v1.4.0 | v1.4.0 | v0.1.1 (en `main`) | Implementación de `Zeroize` en `LAST_COPIED_SECRET` y vaciado en el cierre de ventana y bloqueo; aclaración de límites en apagados abruptos y herramientas de portapapeles de terceros; actualización de pruebas unitarias a 40 (14 núcleo + 26 desktop); sustitución de números de línea por nombres de función en la trazabilidad interna; actualización de versiones de extensiones a v1.10.0 y restricción de instalaciones locales en Chrome. |
+| **v1.4** | 3 de Octubre de 2026 | Especificación de Respaldo Cifrado | v1.4.0 | v0.1.1 (en `main`) | Especificación técnica formal del formato de respaldo cifrado `.mplockbackup` (encabezado canónico de 30 bytes, validación de versiones e iteraciones, PBKDF2 600.000 rondas, AES-256-GCM y escritura atómica); inclusión de la exportación a CSV en texto plano en la matriz de riesgos operativos del cliente (sec. 8); ampliación de la suite de pruebas a 50 pruebas unitarias automatizadas (14 en `mplock-core` y 36 en `src-tauri`, con 9 pruebas dedicadas al ciclo de vida de respaldos). |
 
 ---
 
-## Anexo: Matriz de Trazabilidad Técnica (Afirmación → Archivo:Línea)
+## Anexo: Matriz de Trazabilidad Técnica (Afirmación → Archivo:Línea / Función)
 
-| Concepto Técnico | Parámetro en Código | Archivo en Repositorio | Línea(s) de Código | Estado de Verificabilidad |
+| Concepto Técnico | Parámetro en Código | Archivo en Repositorio | Línea / Función | Estado de Verificabilidad |
 | :--- | :--- | :--- | :--- | :--- |
 | **PBKDF2 Iteraciones** | `600_000` rondas | `mplock-core/src/crypto.rs` | Línea 13 (`PBKDF2_ITERATIONS`) | **Verificable públicamente** |
 | **PBKDF2 Función Hash** | `SimpleHmac<Sha256>` | `mplock-core/src/crypto.rs` | Líneas 6, 10, 21-23 | **Verificable públicamente** |
@@ -407,7 +424,7 @@ Para reportar vulnerabilidades de seguridad, debilidades criptográficas o fallo
 | **Estructura Payload Base64** | `Salt (16B) + IV (12B) + Ciphertext` | `mplock-core/src/crypto.rs` | Líneas 27-30, 58-64 | **Verificable públicamente** |
 | **Zeroize en Clave Derivada** | `key_bytes.zeroize()` | `mplock-core/src/crypto.rs` | Líneas 49, 94 | **Verificable públicamente** |
 | **Zeroize en Cifrador AES (Feature)** | `aes-gcm = { version = "0.10", features = ["zeroize"] }` | `mplock-core/Cargo.toml` | Línea 21 | **Verificable públicamente** |
-| **Limpieza Portapapeles (30 s)** | `copy_to_clipboard_with_autoclear` | `src-tauri/src/lib.rs` | Líneas 100-117 | *Componente no abierto, no verificable públicamente* |
+| **Limpieza Portapapeles (30 s)** | `copy_to_clipboard_with_autoclear` | `src-tauri/src/lib.rs` | Función `copy_to_clipboard_with_autoclear` | *Componente no abierto, no verificable públicamente* |
 | **Generación de DEK (32B)** | `OsRng.fill_bytes(&mut dek)` | `mplock-core/src/storage.rs` | Líneas 95-96 | **Verificable públicamente** |
 | **Envoltura Dual de la DEK** | `encrypted_dek_master` + `recovery` | `mplock-core/src/storage.rs` | Líneas 101-106 | **Verificable públicamente** |
 | **Código de Recuperación** | 24 caracteres (32 símbolos Crockford, 120 bits) | `mplock-core/src/storage.rs` | Líneas 70-82 | **Verificable públicamente** |
@@ -418,10 +435,13 @@ Para reportar vulnerabilidades de seguridad, debilidades criptográficas o fallo
 | **Longitud Licencia Binaria** | `78` bytes (14 payload + 64 firma) | `mplock-core/src/license.rs` | Líneas 6-7, 99-108 | **Verificable públicamente** |
 | **Verificación Ed25519** | `verifying_key.verify(payload, &sig)` | `mplock-core/src/license.rs` | Líneas 117-119 | **Verificable públicamente** |
 | **Hash SHA-256 Revocación** | Hash de firma contra lista negra | `mplock-core/src/license.rs` | Líneas 121-130 | **Verificable públicamente** |
-| **Native Messaging Stdio** | 4-byte LE length + JSON UTF-8 | `src-tauri/src/native_host.rs` | Líneas 18-48, 128-137 | *Componente no abierto, no verificable públicamente* |
-| **Límite Mensaje Nativo** | `1024 * 1024` bytes (1 MB) | `src-tauri/src/native_host.rs` | Línea 30 | *Componente no abierto, no verificable públicamente* |
-| **Allowed Extensions Firefox** | `["password-manager@example.com"]` | `src-tauri/src/lib.rs` | Líneas 569-571 | *Componente no abierto, no verificable públicamente* |
-| **Allowed Origins Chrome/Edge** | `["chrome-extension://gianaainehpppkelimbojoafaomdpipa/"]` | `src-tauri/src/lib.rs` | Líneas 586-588 | *Componente no abierto, no verificable públicamente* |
-| **Protección Semilla 2FA** | Solo se devuelve código 6 dígitos | `src-tauri/src/native_host.rs` | Líneas 180-194 | *Componente no abierto, no verificable públicamente* |
-| **Tope 15 Cuentas Free/Trial** | `check_credential_limit` | `src-tauri/src/lib.rs` | Líneas 149-154, 291-296 | *Componente no abierto, no verificable públicamente* |
-| **Vinculación a Hardware** | `MachineGuid` en Registro Windows | `src-tauri/src/license.rs` | Implementado en backend | *Componente no abierto, no verificable públicamente* |
+| **Native Messaging Stdio** | 4-byte LE length + JSON UTF-8 | `src-tauri/src/native_host.rs` | Funciones `run_native_host`, `send_response` | *Componente no abierto, no verificable públicamente* |
+| **Límite Mensaje Nativo** | `1024 * 1024` bytes (1 MB) | `src-tauri/src/native_host.rs` | Función `run_native_host` (límite 1 MB) | *Componente no abierto, no verificable públicamente* |
+| **Allowed Extensions Firefox** | `["password-manager@example.com"]` | `src-tauri/src/lib.rs` | Función `run` (registro de manifiesto) | *Componente no abierto, no verificable públicamente* |
+| **Allowed Origins Chrome/Edge** | `["chrome-extension://gianaainehpppkelimbojoafaomdpipa/"]` | `src-tauri/src/lib.rs` | Función `run` (registro de manifiesto) | *Componente no abierto, no verificable públicamente* |
+| **Protección Semilla 2FA** | Solo se devuelve código 6 dígitos | `src-tauri/src/native_host.rs` | Función `handle_get_request` | *Componente no abierto, no verificable públicamente* |
+| **Tope 15 Cuentas Free/Trial** | `check_credential_limit` | `src-tauri/src/lib.rs` | Funciones `add_credential`, `add_credentials_bulk` | *Componente no abierto, no verificable públicamente* |
+| **Vinculación a Hardware** | `MachineGuid` en Registro Windows | `src-tauri/src/license.rs` | Función `get_device_raw_identifier` | *Componente no abierto, no verificable públicamente* |
+| **Encabezado Respaldo Cifrado** | `MPLOCK_BACKUP\0` (30B LE: v1, 600k iter, salt 16B, nonce 12B) | `src-tauri/src/lib.rs` | Funciones `create_encrypted_backup_data`, `parse_and_decrypt_backup_data` | *Componente no abierto, no verificable públicamente* |
+| **Escritura Atómica en Disco** | Archivo temporal + `sync_all` + `fs::rename` | `src-tauri/src/lib.rs` | Función `atomic_write_file` | *Componente no abierto, no verificable públicamente* |
+| **Exportación CSV Segura** | Reautenticación con contraseña maestra + confirmación "EXPORTAR" | `src-tauri/src/lib.rs`, `src/ExportModal.jsx` | Función `export_vault_csv` y componente `ExportModal` | *Componente no abierto, no verificable públicamente* |
