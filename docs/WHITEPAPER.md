@@ -1,6 +1,6 @@
 # Whitepaper de Arquitectura Criptográfica: MPLock & mplock-core
 
-**Documento Técnico Oficial — Versión 1.4 (Octubre 2026)**  
+**Documento Técnico Oficial — Versión 1.5 (14 de Octubre de 2026)**  
 **Ámbito de Referencia:** `mplock-core` v0.1.1 (en `main`) · `MPLock Desktop` v1.4.0 (Windows x64) · `Extensiones` v1.10.0  
 **Repositorio Abierto del Núcleo:** [github.com/eagoudet/mplock-core](https://github.com/eagoudet/mplock-core)  
 **Licencia del Núcleo:** MIT OR Apache-2.0  
@@ -12,14 +12,14 @@
 ### Resumen Ejecutivo (Español)
 MPLock es un gestor de credenciales y autenticador de doble factor (2FA/TOTP) concebido para el sistema operativo Microsoft Windows bajo los principios de control soberano de los datos y procesamiento estrictamente local (*local-first*). A diferencia de los modelos dependientes de nubes centralizadas, en MPLock la base de datos de credenciales reside en el almacenamiento local del equipo del usuario y no es transferida a servidores remotos ni a infraestructuras en la nube.
 
-El núcleo criptográfico subyacente, implementado en la biblioteca abierta `mplock-core` escrita en Rust, utiliza un esquema de sobre cerrado con Clave de Cifrado de Datos (DEK, *Data Encryption Key*) de 256 bits generada mediante el generador criptográfico del sistema operativo (`OsRng`). Los datos confidenciales se cifran con el algoritmo autenticado AES-256-GCM (nonce aleatorio de 96 bits con probabilidad de colisión despreciable), mientras que la DEK se almacena envuelta de forma independiente bajo dos derivaciones: la contraseña maestra del usuario y un código de recuperación humanamente legible de 24 caracteres (alfabeto Crockford Base32 de 32 símbolos, equivalente a 120 bits de entropía). Cada derivación aplica la función estándar PBKDF2-HMAC-SHA256 con 600.000 iteraciones y sales criptográficas únicas de 16 bytes.
+El núcleo criptográfico subyacente, implementado en la biblioteca abierta `mplock-core` escrita en Rust, utiliza un esquema de sobre cerrado con Clave de Cifrado de Datos (DEK, *Data Encryption Key*) de 256 bits generada mediante el generador criptográfico del sistema operativo (`OsRng`). Los datos confidenciales se cifran con el algoritmo autenticado AES-256-GCM (nonce aleatorio de 96 bits con probabilidad de colisión despreciable), mientras que la DEK se almacena envuelta de forma independiente bajo dos derivaciones: la contraseña maestra del usuario y un código de recuperación humanamente legible de 24 caracteres (alfabeto Base32 de 32 símbolos sin caracteres ambiguos (O, 0, I, 1), equivalente a 120 bits de entropía). Cada derivación aplica la función estándar PBKDF2-HMAC-SHA256 con 600.000 iteraciones y sales criptográficas únicas de 16 bytes.
 
 El presente documento expone una descripción técnica, honesta y contrastable del diseño criptográfico del software, delimitando tanto las garantías que ofrece frente al robo o extracción de datos en reposo, como sus fronteras y limitaciones intrínsecas frente a entornos operativos adversos o terminales comprometidos.
 
 ### Executive Summary (English)
 MPLock is a local-first password manager and time-based one-time password (TOTP/2FA) authenticator engineered for Microsoft Windows to ensure sovereign local data control. Unlike cloud-dependent alternatives, user credentials stored in MPLock reside exclusively within the local file system and are never synchronized or transmitted to remote infrastructure.
 
-The core cryptographic engine, encapsulated in the standalone, open-source Rust library `mplock-core`, employs an envelope encryption model anchored by a 256-bit Data Encryption Key (DEK) generated via the operating system's CSPRNG (`OsRng`). Vault payloads are encrypted using authenticated AES-256-GCM with a 96-bit random nonce. The DEK itself is wrapped twice independently: once under the user's master password and once under a 24-character human-readable recovery code (Crockford Base32 alphabet of 32 symbols, providing 120 bits of entropy). Both key wrapping operations utilize PBKDF2-HMAC-SHA256 with 600,000 iterations and distinct 16-byte random salts.
+The core cryptographic engine, encapsulated in the standalone, open-source Rust library `mplock-core`, employs an envelope encryption model anchored by a 256-bit Data Encryption Key (DEK) generated via the operating system's CSPRNG (`OsRng`). Vault payloads are encrypted using authenticated AES-256-GCM with a 96-bit random nonce. The DEK itself is wrapped twice independently: once under the user's master password and once under a 24-character human-readable recovery code (Base32 alphabet of 32 symbols without ambiguous characters (O, 0, I, 1), providing 120 bits of entropy). Both key wrapping operations utilize PBKDF2-HMAC-SHA256 with 600,000 iterations and distinct 16-byte random salts.
 
 This whitepaper provides a detailed, verifiable, and transparent technical description of MPLock's cryptographic architecture. Every architectural claim is referenced to actual source files. The document explicitly delineates the security boundaries of the system, stating what MPLock protects against in offline scenarios, as well as the inherent limitations of any software running on a compromised host operating system.
 
@@ -170,7 +170,7 @@ La exportación de respaldo cifrado (implementada en `src-tauri/src/lib.rs`) gen
 ## 4. Generación de Aleatoriedad y Muestreo de Contraseñas
 
 ### 4.1 Fuente de Entropía Criptográfica (`OsRng`)
-MPLock se apoya en `rand::rngs::OsRng` (`crypto.rs:8`, `storage.rs:2`, `password.rs:1`) para todas las decisiones criptográficas (sales, IVs, DEK y generación de contraseñas). En el entorno objetivo de la aplicación (Windows), `OsRng` delega la obtención de aleatoriedad directamente en `BCryptGenRandom` de la API de Criptografía de Nueva Generación (CNG) del kernel de Windows. *(Nota: Las interfaces subyacentes de la biblioteca `rand` para Linux como `getrandom(2)` o macOS como `getentropy(2)` son capacidades de la librería Rust, no un soporte activo multiplataforma de la aplicación de escritorio).*
+MPLock se apoya en `rand::rngs::OsRng` (`crypto.rs:8`, `storage.rs:2`, `password.rs:1`) para todas las decisiones criptográficas (sales, IVs, DEK y generación de contraseñas), el cual utiliza el generador criptográfico del sistema operativo a través de la biblioteca getrandom.
 
 ### 4.2 Eliminación del Sesgo de Módulo (*Modulo Bias*) en el Generador de Contraseñas
 El generador de contraseñas (`password::generate_secure_password`, `password.rs:21-63`) utiliza un alfabeto de **78 caracteres legibles**:
@@ -239,7 +239,7 @@ En `totp::parse_otpauth_uri` (`totp.rs:16-72`):
 La función `parse_otpauth_uri` extrae **únicamente el parámetro `secret=`**, ignorando silenciosamente los parámetros `algorithm`, `digits` y `period` si estuvieran presentes en la URI. El generador ejecuta rígidamente HMAC-SHA1, 6 dígitos y periodo de 30 segundos. Para servicios minoritarios que exijan SHA256 o códigos de 8 dígitos, los códigos generados no serán válidos.
 
 ### 6.4 Custodia de las Semillas TOTP
-La semilla secreta Base32 se almacena cifrada en la base de datos local y **jamás se envía a la extensión del navegador**. Cuando la extensión solicita credenciales, el host nativo en Rust calcula el código de 6 dígitos en memoria y transfiere únicamente el código temporal resultante (`src-tauri/src/native_host.rs:180-194` — componente cerrado).
+La semilla secreta Base32 se almacena cifrada en la bóveda cifrada (credentials.enc) y **jamás se envía a la extensión del navegador**. Cuando la extensión solicita credenciales, el host nativo en Rust calcula el código de 6 dígitos en memoria y transfiere únicamente el código temporal resultante (`src-tauri/src/native_host.rs:180-194` — componente cerrado).
 
 ---
 
@@ -409,6 +409,7 @@ Para reportar vulnerabilidades de seguridad, debilidades criptográficas o fallo
 | **v1.2** | 2 de Octubre de 2026 | Actualización Técnica Integral | v1.3.3 | v0.1.1 (en `main`) | Actualización de `mplock-core` a `v0.1.1`; habilitación de feature `zeroize` en `aes-gcm = "0.10"` para sobrescritura de subclaves en memoria tras drop; integración de extensiones nativas de Windows en `arboard` (`SetExtWindows::exclude_from_history / exclude_from_cloud`) mitigando persistencia en `Win + V` y nube; temporizador nativo en segundo plano (Tauri/Rust) para vaciado a los 30 s y limpieza al cerrar ventana; delimitación de memoria JavaScript en extensiones; corrección sobre ID inmutable de Firefox fijado por Mozilla AMO (`password-manager@example.com`). |
 | **v1.3** | 2 de Octubre de 2026 | Lanzamiento Release v1.4.0 | v1.4.0 | v0.1.1 (en `main`) | Implementación de `Zeroize` en `LAST_COPIED_SECRET` y vaciado en el cierre de ventana y bloqueo; aclaración de límites en apagados abruptos y herramientas de portapapeles de terceros; actualización de pruebas unitarias a 40 (14 núcleo + 26 desktop); sustitución de números de línea por nombres de función en la trazabilidad interna; actualización de versiones de extensiones a v1.10.0 y restricción de instalaciones locales en Chrome. |
 | **v1.4** | 3 de Octubre de 2026 | Especificación de Respaldo Cifrado | v1.4.0 | v0.1.1 (en `main`) | Especificación técnica formal del formato de respaldo cifrado `.mplockbackup` (encabezado canónico de 30 bytes, validación de versiones e iteraciones, PBKDF2 600.000 rondas, AES-256-GCM y escritura atómica); inclusión de la exportación a CSV en texto plano en la matriz de riesgos operativos del cliente (sec. 8); ampliación de la suite de pruebas a 50 pruebas unitarias automatizadas (14 en `mplock-core` y 36 en `src-tauri`, con 9 pruebas dedicadas al ciclo de vida de respaldos). |
+| **v1.5** | 14 de Octubre de 2026 | Ajustes de Redacción | v1.4.0 | v0.1.1 (en `main`) | Ajustes de redacción: sin términos absolutos; descripción del alfabeto del código de recuperación. |
 
 ---
 
@@ -427,7 +428,7 @@ Para reportar vulnerabilidades de seguridad, debilidades criptográficas o fallo
 | **Limpieza Portapapeles (30 s)** | `copy_to_clipboard_with_autoclear` | `src-tauri/src/lib.rs` | Función `copy_to_clipboard_with_autoclear` | *Componente no abierto, no verificable públicamente* |
 | **Generación de DEK (32B)** | `OsRng.fill_bytes(&mut dek)` | `mplock-core/src/storage.rs` | Líneas 95-96 | **Verificable públicamente** |
 | **Envoltura Dual de la DEK** | `encrypted_dek_master` + `recovery` | `mplock-core/src/storage.rs` | Líneas 101-106 | **Verificable públicamente** |
-| **Código de Recuperación** | 24 caracteres (32 símbolos Crockford, 120 bits) | `mplock-core/src/storage.rs` | Líneas 70-82 | **Verificable públicamente** |
+| **Código de Recuperación** | 24 caracteres (32 símbolos sin caracteres ambiguos (O, 0, I, 1), 120 bits) | `mplock-core/src/storage.rs` | Líneas 70-82 | **Verificable públicamente** |
 | **Zeroize en Struct Credential** | `#[zeroize(drop)]` en `struct Credential` | `mplock-core/src/storage.rs` | Líneas 23-24 | **Verificable públicamente** |
 | **Rejection Sampling Contraseñas**| `rng.gen_range(0..78)` + loop de clases | `mplock-core/src/password.rs` | Líneas 36-62 | **Verificable públicamente** |
 | **Parámetros TOTP** | RFC 6238, SHA1, 6 dígitos, paso 30s | `mplock-core/src/totp.rs` | Líneas 84-96 | **Verificable públicamente** |
